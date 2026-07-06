@@ -8,6 +8,7 @@ import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from datetime import datetime, timedelta, timezone
 
 
 try:
@@ -161,6 +162,41 @@ def build_message(item):
     return "\n".join(parts)
 
 
+def kst_now():
+    return datetime.now(timezone.utc).astimezone(timezone(timedelta(hours=9)))
+
+
+def should_send_status(state, first_run, now):
+    status = state.setdefault("status_notifications", {})
+    if not status.get("first_run_sent"):
+        status["first_run_sent"] = True
+        return True, "첫 실행"
+
+    if now.hour not in {9, 18}:
+        return False, ""
+
+    slot = f"{now:%Y-%m-%d}-{now.hour:02d}"
+    if status.get("last_slot") == slot:
+        return False, ""
+
+    status["last_slot"] = slot
+    label = "오전 9시" if now.hour == 9 else "오후 6시"
+    return True, label
+
+
+def build_status_message(searches, reason, now):
+    watched = ", ".join(search["query"] for search in searches)
+    return "\n".join(
+        [
+            "[Kodex 감시 상태]",
+            "정상 감시 중입니다.",
+            f"상태 알림: {reason}",
+            f"확인 시간: {now:%Y-%m-%d %H:%M} KST",
+            f"감시 대상: {watched}",
+        ]
+    )
+
+
 def main():
     parser = argparse.ArgumentParser(description="Kodex 검색 결과를 감시하고 새 게시글을 텔레그램으로 알립니다.")
     parser.add_argument("--config", default=str(DEFAULT_CONFIG), help="설정 JSON 경로")
@@ -168,6 +204,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="텔레그램 전송 없이 출력만 합니다.")
     parser.add_argument("--notify-existing", action="store_true", help="첫 실행 기준선 저장 없이 기존 항목도 알립니다.")
     parser.add_argument("--no-last-checked", action="store_true", help="last_checked_at 값을 갱신하지 않습니다.")
+    parser.add_argument("--status-notifications", action="store_true", help="첫 실행, 09시, 18시에 감시 상태 알림을 보냅니다.")
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -208,6 +245,13 @@ def main():
 
     for item in sorted(new_items, key=lambda x: (x.get("date") or "", x["id"])):
         send_telegram(token, chat_id, build_message(item), dry_run=args.dry_run)
+
+    if args.status_notifications:
+        now = kst_now()
+        send_status, reason = should_send_status(state, first_run, now)
+        if send_status:
+            send_telegram(token, chat_id, build_status_message(searches, reason, now), dry_run=args.dry_run)
+            save_json(state_path, state)
 
     print(f"확인 완료: 새 항목 {len(new_items)}건")
 
