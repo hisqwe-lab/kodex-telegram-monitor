@@ -20,7 +20,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python3 monitor.py --config config.github.json --state state.json --no-last-checked
+          python3 monitor.py --config config.github.json --state state.json --no-last-checked --status-notifications
 
       - name: Save state
         run: |
